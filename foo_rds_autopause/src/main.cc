@@ -10,4 +10,20 @@ DECLARE_COMPONENT_VERSION("Autopause on RDS disconnect", "1.0", "Pauses/continue
 
 
 // This will prevent users from renaming your component around (important for proper troubleshooter behaviors) or loading multiple instances of it.
-VALIDATE_COMPONENT_FILENAME("foo_rds_autopause.dll");
+//VALIDATE_COMPONENT_FILENAME("foo_rds_autopause.dll");
+
+// Sample initquit implementation. See also: initquit class documentation in relevant header.
+
+class myinitquit : public initquit {
+public:
+    virtual void on_init() override {
+        static_api_ptr_t<playback_control> m_playback_control;
+        console::print("Autopause on RDS disconnect: on_init()");
+    }
+
+    virtual void on_quit() override {
+        console::print("Autopause on RDS disconnect: on_quit()");
+    }
+};
+
+static initquit_factory_t<myinitquit> g_myinitquit_factory;
