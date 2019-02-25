@@ -1,6 +1,7 @@
 struct IUnknown; // because windows.h is a garbage: https://developercommunity.visualstudio.com/content/problem/185399/error-c2760-in-combaseapih-with-windows-sdk-81-and.html
 #include <foobar2000.h>
-
+#include <wtsapi32.h>
+#include <thread>
 
 // Declaration of your component's version information
 // Since foobar2000 v1.0 having at least one of these in your DLL is mandatory to let the troubleshooter tell different versions of your component apart.
@@ -14,14 +15,71 @@ DECLARE_COMPONENT_VERSION("Autopause on RDS disconnect", "1.0", "Pauses/continue
 
 // Sample initquit implementation. See also: initquit class documentation in relevant header.
 
+namespace {
+    bool s_shutdownRequested = false;
+
+    class PausePlayback: public main_thread_callback {
+    public:
+        virtual void callback_run() override {
+            static_api_ptr_t<playback_control> playback;
+            playback->pause(true);
+            console::print("paused the playback");
+        }
+    };
+
+    class ContinuePlayback: public main_thread_callback {
+    public:
+        virtual void callback_run() override {
+            static_api_ptr_t<playback_control> playback;
+            playback->pause(false);
+            console::print("continued the playback");
+        }
+    };
+
+    void event_thread_main() {
+        while (true) {
+            DWORD resultingFlags = 0;
+            if (::WTSWaitSystemEvent(WTS_CURRENT_SERVER_HANDLE, WTS_EVENT_DISCONNECT | WTS_EVENT_CONNECT, &resultingFlags)) {
+                if (WTS_EVENT_NONE == resultingFlags) {
+                    //someone flushed the event queue. If it was us -- application is shutting down, and we should too
+                    if (s_shutdownRequested) {
+                        return;
+                    }
+                    // not us -- ignore
+                } else {
+                    if (WTS_EVENT_DISCONNECT == WTS_EVENT_DISCONNECT & resultingFlags) {
+                        main_thread_callback_manager::get()->add_callback(new service_impl_t<PausePlayback>);
+                    } else if (WTS_EVENT_CONNECT == WTS_EVENT_CONNECT & resultingFlags) {
+                        main_thread_callback_manager::get()->add_callback(new service_impl_t<ContinuePlayback>);
+                    }
+                }
+            } else {
+                //TODO: report error
+                OutputDebugStringA("WTSWaitSystemEvent failed");
+                return;
+            }
+        }
+    }
+
+}
+
+
+
+
 class myinitquit : public initquit {
 public:
     virtual void on_init() override {
-        static_api_ptr_t<playback_control> m_playback_control;
+        std::thread eventThread(event_thread_main);
+        eventThread.detach();
+
         console::print("Autopause on RDS disconnect: on_init()");
     }
 
     virtual void on_quit() override {
+        //signal our detector thread to quit
+        s_shutdownRequested = true;
+        DWORD dummy;
+        ::WTSWaitSystemEvent(WTS_CURRENT_SERVER_HANDLE, WTS_EVENT_FLUSH, &dummy);
         console::print("Autopause on RDS disconnect: on_quit()");
     }
 };
