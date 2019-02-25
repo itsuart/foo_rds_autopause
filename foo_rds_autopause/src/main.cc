@@ -47,9 +47,9 @@ namespace {
                     }
                     // not us -- ignore
                 } else {
-                    if (WTS_EVENT_DISCONNECT == WTS_EVENT_DISCONNECT & resultingFlags) {
+                    if (WTS_EVENT_DISCONNECT & resultingFlags) {
                         main_thread_callback_manager::get()->add_callback(new service_impl_t<PausePlayback>);
-                    } else if (WTS_EVENT_CONNECT == WTS_EVENT_CONNECT & resultingFlags) {
+                    } else if (WTS_EVENT_CONNECT & resultingFlags) {
                         main_thread_callback_manager::get()->add_callback(new service_impl_t<ContinuePlayback>);
                     }
                 }
