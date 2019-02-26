@@ -2,6 +2,7 @@ struct IUnknown; // because windows.h is a garbage: https://developercommunity.v
 #include <foobar2000.h>
 #include <wtsapi32.h>
 #include <thread>
+#include "helpers/AutoWTSFreeMemory.h"
 
 // Declaration of your component's version information
 // Since foobar2000 v1.0 having at least one of these in your DLL is mandatory to let the troubleshooter tell different versions of your component apart.
@@ -23,7 +24,9 @@ namespace {
         virtual void callback_run() override {
             static_api_ptr_t<playback_control> playback;
             playback->pause(true);
-            console::print("paused the playback");
+#ifdef _DEBUG
+            console::print("pausing the playback");
+#endif
         }
     };
 
@@ -32,14 +35,16 @@ namespace {
         virtual void callback_run() override {
             static_api_ptr_t<playback_control> playback;
             playback->pause(false);
-            console::print("continued the playback");
+#ifdef _DEBUG
+            console::print("continuing the playback");
+#endif
         }
     };
 
     void event_thread_main() {
         while (true) {
             DWORD resultingFlags = 0;
-            if (::WTSWaitSystemEvent(WTS_CURRENT_SERVER_HANDLE, WTS_EVENT_DISCONNECT | WTS_EVENT_CONNECT, &resultingFlags)) {
+            if (::WTSWaitSystemEvent(WTS_CURRENT_SERVER_HANDLE, WTS_EVENT_STATECHANGE, &resultingFlags)) {
                 if (WTS_EVENT_NONE == resultingFlags) {
                     //someone flushed the event queue. If it was us -- application is shutting down, and we should too
                     if (s_shutdownRequested) {
@@ -47,15 +52,32 @@ namespace {
                     }
                     // not us -- ignore
                 } else {
-                    if (WTS_EVENT_DISCONNECT & resultingFlags) {
-                        main_thread_callback_manager::get()->add_callback(new service_impl_t<PausePlayback>);
-                    } else if (WTS_EVENT_CONNECT & resultingFlags) {
-                        main_thread_callback_manager::get()->add_callback(new service_impl_t<ContinuePlayback>);
+                    helpers::AutoWTSFreeMemory<WTS_CONNECTSTATE_CLASS> mem;
+                    DWORD dataSize = 0;
+                    if (::WTSQuerySessionInformationW(
+                        WTS_CURRENT_SERVER_HANDLE,
+                        WTS_CURRENT_SESSION,
+                        WTSConnectState,
+                        reinterpret_cast<wchar_t**>(mem.p_ptr()),
+                        &dataSize))
+                    {
+                        const WTS_CONNECTSTATE_CLASS currentSessionConnectionState = *mem.ptr();
+                        if (currentSessionConnectionState == WTSActive) {
+                            main_thread_callback_manager::get()->add_callback(new service_impl_t<ContinuePlayback>);
+
+                        } else if (currentSessionConnectionState == WTSDisconnected) {
+                            main_thread_callback_manager::get()->add_callback(new service_impl_t<PausePlayback>);
+
+                        }
+
+                    } else {
+                        //TODO: report error
+                        ::OutputDebugStringA("WTSQuerySessionInformationW failed.\n");
                     }
                 }
             } else {
                 //TODO: report error
-                OutputDebugStringA("WTSWaitSystemEvent failed");
+                ::OutputDebugStringA("WTSWaitSystemEvent failed.\n");
                 return;
             }
         }
@@ -64,15 +86,14 @@ namespace {
 }
 
 
-
-
 class myinitquit : public initquit {
 public:
     virtual void on_init() override {
         std::thread eventThread(event_thread_main);
         eventThread.detach();
-
+#ifdef _DEBUG
         console::print("Autopause on RDS disconnect: on_init()");
+#endif
     }
 
     virtual void on_quit() override {
@@ -80,7 +101,9 @@ public:
         s_shutdownRequested = true;
         DWORD dummy;
         ::WTSWaitSystemEvent(WTS_CURRENT_SERVER_HANDLE, WTS_EVENT_FLUSH, &dummy);
-        console::print("Autopause on RDS disconnect: on_quit()");
+#ifdef _DEBUG
+        ::OutputDebugStringA("Autopause on RDS disconnect: on_quit()\n");
+#endif
     }
 };
 

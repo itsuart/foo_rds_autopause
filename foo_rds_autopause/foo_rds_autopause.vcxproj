@@ -182,6 +182,9 @@
     <ClCompile Include="src\component_client.cpp" />
     <ClCompile Include="src\main.cc" />
   </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="src\helpers\AutoWTSFreeMemory.h" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
   </ImportGroup>
