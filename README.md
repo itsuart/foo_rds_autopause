@@ -1,2 +1,2 @@
 # foo_rds_autopause
-Foobar2k plugin to save/restore playback state on event of Remote Desktop Service disconnect/connect 
+Foobar2k plugin to automatically pause the playback when Fast User Switch'ing.
