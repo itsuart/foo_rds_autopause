@@ -18,11 +18,27 @@ DECLARE_COMPONENT_VERSION("Autopause on RDS disconnect", "1.0", "Pauses/continue
 
 namespace {
     bool s_shutdownRequested = false;
+    bool s_sessionDeactivationActivationInProcess = false;
+    bool s_wasPlaying = false;
 
-    class PausePlayback: public main_thread_callback {
+    class SessionDeactivated: public main_thread_callback {
     public:
         virtual void callback_run() override {
+            if (s_sessionDeactivationActivationInProcess) {
+                // we already in the process of handling the events, ignore this
+                return;
+            }
+            s_sessionDeactivationActivationInProcess = true;
+
             static_api_ptr_t<playback_control> playback;
+
+            if (playback->is_paused() or (not playback->is_playing())) {
+                //playback is paused or stopped. We will leave that as is.
+                s_wasPlaying = false;
+                return;
+            }
+
+            s_wasPlaying = true;
             playback->pause(true);
 #ifdef _DEBUG
             console::print("pausing the playback");
@@ -30,14 +46,17 @@ namespace {
         }
     };
 
-    class ContinuePlayback: public main_thread_callback {
+    class SessionActivated: public main_thread_callback {
     public:
         virtual void callback_run() override {
-            static_api_ptr_t<playback_control> playback;
-            playback->pause(false);
+            s_sessionDeactivationActivationInProcess = false; // processing is complete
+            if (s_wasPlaying) { //then restore playing
+                static_api_ptr_t<playback_control> playback;
+                playback->pause(false);
 #ifdef _DEBUG
-            console::print("continuing the playback");
+                console::print("continuing the playback");
 #endif
+            } //otherwise do nothing
         }
     };
 
@@ -63,10 +82,10 @@ namespace {
                     {
                         const WTS_CONNECTSTATE_CLASS currentSessionConnectionState = *mem.ptr();
                         if (currentSessionConnectionState == WTSActive) {
-                            main_thread_callback_manager::get()->add_callback(new service_impl_t<ContinuePlayback>);
+                            main_thread_callback_manager::get()->add_callback(new service_impl_t<SessionActivated>);
 
                         } else if (currentSessionConnectionState == WTSDisconnected) {
-                            main_thread_callback_manager::get()->add_callback(new service_impl_t<PausePlayback>);
+                            main_thread_callback_manager::get()->add_callback(new service_impl_t<SessionDeactivated>);
 
                         }
 
